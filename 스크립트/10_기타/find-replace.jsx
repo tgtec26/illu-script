@@ -38,13 +38,17 @@
         w.margins = 16;
 
         var scopePanel = w.add("panel", undefined, "검색 범위");
-        scopePanel.orientation = "row";
+        scopePanel.orientation = "column";
         scopePanel.alignChildren = "left";
         scopePanel.margins = 12;
-        var rbDoc = scopePanel.add("radiobutton", undefined, "문서 전체");
-        var rbSelection = scopePanel.add("radiobutton", undefined, "현재 선택 안");
+        var scopeRow = scopePanel.add("group");
+        scopeRow.orientation = "row";
+        var rbDoc = scopeRow.add("radiobutton", undefined, "문서 전체");
+        var rbSelection = scopeRow.add("radiobutton", undefined, "현재 선택 안");
         rbDoc.value = settings.scope !== "selection";
         rbSelection.value = settings.scope === "selection";
+        var chkIncludeClipped = scopePanel.add("checkbox", undefined, "클리핑 마스크 내부 포함");
+        chkIncludeClipped.value = settings.includeClipped;
 
         var conditionPanel = w.add("panel", undefined, "조건");
         conditionPanel.orientation = "column";
@@ -153,7 +157,8 @@
                 tolerance: posTol,
                 colorTolerance: colTol,
                 fit: chkFit.value,
-                rotateMatch: chkRotateMatch.value
+                rotateMatch: chkRotateMatch.value,
+                includeClipped: chkIncludeClipped.value
             };
         }
 
@@ -250,7 +255,8 @@
                 "\"tolerance\":" + num(o.tolerance) + "," +
                 "\"colorTolerance\":" + num(o.colorTolerance) + "," +
                 "\"fit\":" + bool(o.fit) + "," +
-                "\"rotateMatch\":" + bool(o.rotateMatch) +
+                "\"rotateMatch\":" + bool(o.rotateMatch) + "," +
+                "\"includeClipped\":" + bool(o.includeClipped) +
             "}}";
     }
 
@@ -274,7 +280,7 @@
 
                 var candidates = opts.scope === "selection"
                     ? selectionCandidates(sel, reference)
-                    : documentCandidates(doc, reference);
+                    : documentCandidates(doc, reference, opts.includeClipped);
 
                 var refProfile = buildProfile(reference, opts);
                 var matches = [reference];
@@ -360,20 +366,35 @@
             return result;
         }
 
-        function documentCandidates(document, refItem) {
+        function documentCandidates(document, refItem, includeClipped) {
             var result = [];
-            for (var i = 0; i < document.pageItems.length; i++) {
-                var item = document.pageItems[i];
+            var items = document.pageItems;
+            for (var i = 0; i < items.length; i++) {
+                var item = items[i];
                 if (item === refItem) continue;
-                if (!isTopLevelItem(item)) continue;
+                if (item.clipping) continue;                 // 클리핑 마스크 path 자체는 후보에서 제외
                 if (!isUsableItem(item)) continue;
+                if (!isCandidateContext(item, includeClipped)) continue;
+                // includeClipped면 클립 그룹은 통째 대신 내부 오브젝트를 후보로 쓰므로 그룹 자체는 건너뜀
+                if (includeClipped && item.typename === "GroupItem" && item.clipped) continue;
                 result.push(item);
             }
             return result;
         }
 
-        function isTopLevelItem(item) {
-            return item.parent && item.parent.typename !== "GroupItem" && item.parent.typename !== "CompoundPathItem";
+        // 후보 자격: 일반 그룹/컴파운드 안에 있으면 제외(그룹은 통째 매칭).
+        // includeClipped면 클리핑 그룹은 투명하게 취급해 내부로 내려간다.
+        function isCandidateContext(item, includeClipped) {
+            var p = item.parent;
+            while (p && p.typename !== "Document") {
+                if (p.typename === "GroupItem") {
+                    if (includeClipped && p.clipped) { p = p.parent; continue; }
+                    return false;
+                }
+                if (p.typename === "CompoundPathItem") return false;
+                p = p.parent; // Layer 등은 위로 통과
+            }
+            return true;
         }
 
         function isUsableItem(item) {
@@ -783,7 +804,8 @@
             tolerance: 0.5,
             colorTolerance: 5,
             fit: false,
-            rotateMatch: false
+            rotateMatch: false,
+            includeClipped: true
         };
     }
 
@@ -833,7 +855,8 @@
                 tolerance: options.tolerance,
                 colorTolerance: options.colorTolerance,
                 fit: options.fit,
-                rotateMatch: options.rotateMatch
+                rotateMatch: options.rotateMatch,
+                includeClipped: options.includeClipped
             }, null, 2));
             file.close();
         } catch (e) {
