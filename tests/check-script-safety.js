@@ -111,6 +111,7 @@ for (const file of updaterFiles) {
     'function geometryMatches',
     'function collectPathItems',
     'function colorsMatch',
+    'if (opts.size && !opts.scaleAllowed && !sizeMatches',
   ];
   for (const token of required) {
     if (!source.includes(token)) {

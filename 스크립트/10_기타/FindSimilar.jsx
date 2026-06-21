@@ -162,7 +162,7 @@
 
     function itemMatches(refItem, testItem, opts) {
         if (opts.objectType && refItem.typename !== testItem.typename) return false;
-        if (opts.size && !sizeMatches(refItem, testItem, opts.tolerance)) return false;
+        if (opts.size && !opts.scaleAllowed && !sizeMatches(refItem, testItem, opts.tolerance)) return false;
         if (opts.opacity && Math.abs(refItem.opacity - testItem.opacity) > opts.tolerance) return false;
         if (opts.fill && !styleListMatches(getFillList(refItem), getFillList(testItem), opts.tolerance)) return false;
         if (opts.stroke && !styleListMatches(getStrokeList(refItem), getStrokeList(testItem), opts.tolerance)) return false;
