@@ -1,0 +1,251 @@
+function applyDashPatternWithCornerAlignment(item, dashPattern, forceButtCap) {
+    var paths = [];
+    collectDashTargetPaths(item, paths);
+
+    for (var i = 0; i < paths.length; i++) {
+        applyDashPatternToPath(paths[i], dashPattern, forceButtCap);
+    }
+}
+
+function collectDashTargetPaths(item, paths) {
+    if (!item) return;
+
+    if (item.typename === "GroupItem") {
+        for (var i = 0; i < item.pageItems.length; i++) {
+            collectDashTargetPaths(item.pageItems[i], paths);
+        }
+    } else if (item.typename === "CompoundPathItem") {
+        for (var j = 0; j < item.pathItems.length; j++) {
+            paths.push(item.pathItems[j]);
+        }
+    } else if (item.typename === "PathItem") {
+        paths.push(item);
+    }
+}
+
+function applyDashPatternToPath(pathItem, dashPattern, forceButtCap) {
+    try {
+        pathItem.stroked = true;
+        pathItem.strokeDashes = dashPattern;
+        if (forceButtCap) {
+            pathItem.strokeCap = StrokeCap.BUTTENDCAP;
+        }
+
+        applyIllustratorDashCornerAlignment(pathItem, dashPattern);
+    } catch(e) {
+        // Locked or hidden artwork can throw; keep processing the rest.
+    }
+}
+
+function applyIllustratorDashCornerAlignment(pathItem, dashPattern) {
+    var doc = app.activeDocument;
+    var originalSelection = getSelectionArray(doc);
+    var actionSetName = "Codex_DashTools";
+    var actionName = "AlignDashToCorners";
+    var actionFile = new File(Folder.temp + "/Codex_DashAlignToCorners.aia");
+
+    try {
+        doc.selection = null;
+        pathItem.selected = true;
+
+        removeActionSetIfLoaded(actionSetName);
+        writeDashCornerAction(actionFile, actionSetName, actionName, pathItem, dashPattern);
+
+        app.loadAction(actionFile);
+        app.doScript(actionName, actionSetName);
+
+        pathItem.stroked = true;
+        pathItem.strokeDashes = dashPattern;
+    } catch(actionError) {
+        // Some Illustrator versions can reject action-based stroke parameters.
+        // The dash pattern remains applied even if the corner-alignment action fails.
+    } finally {
+        removeActionSetIfLoaded(actionSetName);
+        try {
+            actionFile.remove();
+        } catch(removeError) {}
+        restoreSelection(doc, originalSelection);
+    }
+}
+
+function getSelectionArray(doc) {
+    var selected = [];
+    try {
+        for (var i = 0; i < doc.selection.length; i++) {
+            selected.push(doc.selection[i]);
+        }
+    } catch(e) {}
+    return selected;
+}
+
+function restoreSelection(doc, selected) {
+    try {
+        doc.selection = null;
+        for (var i = 0; i < selected.length; i++) {
+            try {
+                selected[i].selected = true;
+            } catch(e) {}
+        }
+    } catch(e) {}
+}
+
+function removeActionSetIfLoaded(actionSetName) {
+    try {
+        app.unloadAction(actionSetName, "");
+    } catch(e) {}
+}
+
+function writeDashCornerAction(actionFile, actionSetName, actionName, pathItem, dashPattern) {
+    var lines = [];
+
+    lines.push("/version 3");
+    lines.push("/name [ " + actionSetName.length);
+    lines.push("    " + stringToHex(actionSetName));
+    lines.push("]");
+    lines.push("/isOpen 1");
+    lines.push("/actionCount 1");
+    lines.push("/action-1 {");
+    lines.push("    /name [ " + actionName.length);
+    lines.push("        " + stringToHex(actionName));
+    lines.push("    ]");
+    lines.push("    /keyIndex 0");
+    lines.push("    /colorIndex 0");
+    lines.push("    /isOpen 1");
+    lines.push("    /eventCount 1");
+    lines.push("    /event-1 {");
+    lines.push("        /useRulersIn1stQuadrant 0");
+    lines.push("        /internalName (ai_plugin_setStroke)");
+    lines.push("        /localizedName [ 10");
+    lines.push("            536574205374726F6B65");
+    lines.push("        ]");
+    lines.push("        /isOpen 1");
+    lines.push("        /isOn 1");
+    lines.push("        /hasDialog 0");
+    lines.push("        /parameterCount 1");
+
+    addBooleanParameter(lines, 1, 1684104298, 1);
+
+    lines.push("    }");
+    lines.push("}");
+
+    actionFile.encoding = "UTF-8";
+    actionFile.open("w");
+    actionFile.write(lines.join("\n"));
+    actionFile.close();
+}
+
+function addUnitRealParameter(lines, index, key, value) {
+    lines.push("        /parameter-" + index + " {");
+    lines.push("            /key " + key);
+    lines.push("            /showInPalette -1");
+    lines.push("            /type (unit real)");
+    lines.push("            /value " + numberForAction(value));
+    lines.push("            /unit 592476268");
+    lines.push("        }");
+}
+
+function addRealParameter(lines, index, key, value) {
+    lines.push("        /parameter-" + index + " {");
+    lines.push("            /key " + key);
+    lines.push("            /showInPalette -1");
+    lines.push("            /type (real)");
+    lines.push("            /value " + numberForAction(value));
+    lines.push("        }");
+}
+
+function addIntegerParameter(lines, index, key, value) {
+    lines.push("        /parameter-" + index + " {");
+    lines.push("            /key " + key);
+    lines.push("            /showInPalette -1");
+    lines.push("            /type (integer)");
+    lines.push("            /value " + parseInt(value, 10));
+    lines.push("        }");
+}
+
+function addBooleanParameter(lines, index, key, value) {
+    lines.push("        /parameter-" + index + " {");
+    lines.push("            /key " + key);
+    lines.push("            /showInPalette -1");
+    lines.push("            /type (boolean)");
+    lines.push("            /value " + value);
+    lines.push("        }");
+}
+
+function addEnumeratedParameter(lines, index, key, name, value) {
+    lines.push("        /parameter-" + index + " {");
+    lines.push("            /key " + key);
+    lines.push("            /showInPalette -1");
+    lines.push("            /type (enumerated)");
+    lines.push("            /name [ " + name.length);
+    lines.push("                " + stringToHex(name));
+    lines.push("            ]");
+    lines.push("            /value " + value);
+    lines.push("        }");
+}
+
+function getStrokeWidth(pathItem) {
+    return safeNumber(pathItem.strokeWidth, 1);
+}
+
+function getMiterLimit(pathItem) {
+    return safeNumber(pathItem.strokeMiterLimit, 10);
+}
+
+function getStrokeCapName(pathItem) {
+    return getStrokeCapValue(pathItem) === 1 ? "Round Cap" :
+        (getStrokeCapValue(pathItem) === 2 ? "Projecting Cap" : "Butt Cap");
+}
+
+function getStrokeCapValue(pathItem) {
+    try {
+        if (pathItem.strokeCap === StrokeCap.ROUNDENDCAP) return 1;
+        if (pathItem.strokeCap === StrokeCap.PROJECTINGENDCAP) return 2;
+    } catch(e) {}
+    return 0;
+}
+
+function getStrokeJoinName(pathItem) {
+    return getStrokeJoinValue(pathItem) === 1 ? "Round Join" :
+        (getStrokeJoinValue(pathItem) === 2 ? "Bevel Join" : "Miter Join");
+}
+
+function getStrokeJoinValue(pathItem) {
+    try {
+        if (pathItem.strokeJoin === StrokeJoin.ROUNDENDJOIN) return 1;
+        if (pathItem.strokeJoin === StrokeJoin.BEVELENDJOIN) return 2;
+    } catch(e) {}
+    return 0;
+}
+
+function getStrokeAlignmentName(pathItem) {
+    return getStrokeAlignmentValue(pathItem) === 1 ? "Inside" :
+        (getStrokeAlignmentValue(pathItem) === 2 ? "Outside" : "Center");
+}
+
+function getStrokeAlignmentValue(pathItem) {
+    try {
+        if (pathItem.strokeAlignment === StrokeAlignment.INSIDE) return 1;
+        if (pathItem.strokeAlignment === StrokeAlignment.OUTSIDE) return 2;
+    } catch(e) {}
+    return 0;
+}
+
+function safeNumber(value, fallback) {
+    value = parseFloat(value);
+    return isNaN(value) ? fallback : value;
+}
+
+function numberForAction(value) {
+    value = safeNumber(value, 0);
+    return String(Math.round(value * 10000) / 10000);
+}
+
+function stringToHex(text) {
+    var hex = "";
+    for (var i = 0; i < text.length; i++) {
+        var code = text.charCodeAt(i).toString(16).toUpperCase();
+        while (code.length < 2) code = "0" + code;
+        hex += code;
+    }
+    return hex;
+}
