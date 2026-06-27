@@ -246,6 +246,22 @@ for (const file of [centerAlignBig, centerAlignSmall]) {
     console.error(`${embedLinkedImages}: missing-document warning must remain visible`);
     failures++;
   }
+  if (!source.includes("var embeddedItems = []") ||
+      !source.includes("var beforeItems = getDirectPageItems(parent)") ||
+      !source.includes("collectNewPageItems(parent, beforeItems, embeddedItems)") ||
+      !source.includes("releaseTransparentClipMasks(embeddedItems)") ||
+      !source.includes("function releaseTransparentClipMasks(items)") ||
+      !source.includes("function collectGroups(item, groups)") ||
+      !source.includes("function releaseGroupTransparentClipMask(group)") ||
+      !source.includes("group.clipped = false") ||
+      !source.includes("isTransparentClippingMask") ||
+      !source.includes("item.clipping && isTransparentPath(item)") ||
+      !source.includes("isClippingCompoundPath(item) && isTransparentCompoundPath(item)") ||
+      !source.includes("pathItem.opacity <= 0 || (!pathItem.filled && !pathItem.stroked)") ||
+      !source.includes("masks[k].remove()")) {
+    console.error(`${embedLinkedImages}: embedded library artwork must release transparent clipping masks and delete the mask paths`);
+    failures++;
+  }
 }
 
 {
