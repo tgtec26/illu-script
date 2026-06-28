@@ -2,33 +2,44 @@
 // 선택한 사각형을 캐비넷 투영법으로 입체화하고 숨은 선(파선) 추가
 
 (function() {
-if (app.documents.length > 0) {
+    if (app.documents.length === 0) {
+        alert("열려있는 문서가 없습니다.");
+        return;
+    }
+
     var doc = app.activeDocument;
     var sel = doc.selection;
 
-    if (sel.length > 0 && sel[0].typename == "PathItem") {
-        var frontFace = sel[0];
-        var bounds = frontFace.geometricBounds; // [left, top, right, bottom]
-        var width   = bounds[2] - bounds[0];
-        var height  = bounds[1] - bounds[3];
-        var defaultDepthMm = Math.round(Math.min(width, height) / 2 / 2.83464567 * 100) / 100;
-        var depthInput = prompt("뒤로 이동 거리(mm)를 입력하세요.", defaultDepthMm);
+    if (!sel || sel.length === 0 || sel[0].typename !== "PathItem") {
+        alert("사각형 패스를 선택해주세요.");
+        return;
+    }
 
-        if (depthInput === null) {
-            return;
-        }
+    var frontFace = sel[0];
+    var bounds = frontFace.geometricBounds; // [left, top, right, bottom]
+    var width = bounds[2] - bounds[0];
+    var height = bounds[1] - bounds[3];
+    var mmToPt = 2.83464567;
+    var defaultDepthMm = Math.round(Math.min(width, height) / 2 / mmToPt * 100) / 100;
+    var previewItems = [];
 
-        var depthMm = parseFloat(String(depthInput).replace(",", "."));
-        if (isNaN(depthMm) || depthMm <= 0) {
-            alert("0보다 큰 숫자를 입력해주세요.");
-            return;
-        }
+    var depthMm = showDepthDialog(defaultDepthMm, function(valueMm) {
+        clearPreview();
+        previewItems = createCabinet(valueMm * mmToPt);
+        app.redraw();
+    }, clearPreview);
 
-        var depth = depthMm * 2.83464567;
+    clearPreview();
+    if (depthMm === null) {
+        return;
+    }
 
+    createCabinet(depthMm * mmToPt);
+    doc.selection = null;
+
+    function createCabinet(depth) {
         frontFace.strokeJoin = StrokeJoin.ROUNDENDJOIN;
 
-        // ── 오른쪽 면 (측면) ────────────────────────────────────
         var rightFace = doc.pathItems.add();
         rightFace.setEntirePath([
             [bounds[2], bounds[1]],
@@ -39,8 +50,6 @@ if (app.documents.length > 0) {
         rightFace.closed = true;
         copyStyle(frontFace, rightFace);
 
-
-        // ── 위쪽 면 (상면) ──────────────────────────────────────
         var topFace = doc.pathItems.add();
         topFace.setEntirePath([
             [bounds[0], bounds[1]],
@@ -54,77 +63,152 @@ if (app.documents.length > 0) {
         rightFace.move(frontFace, ElementPlacement.PLACEBEFORE);
         topFace.move(frontFace, ElementPlacement.PLACEBEFORE);
 
+        var hiddenGroup = makeHiddenLines(depth);
+        hiddenGroup.zOrder(ZOrderMethod.SENDTOBACK);
 
-        // ── 숨겨진 선 (파선) 추가 ───────────────────────────────
+        return [rightFace, topFace, hiddenGroup];
+    }
+
+    function makeHiddenLines(depth) {
         var dx = depth;
         var dy = depth;
-
         var hiddenGroup = doc.activeLayer.groupItems.add();
         hiddenGroup.name = "Hidden Lines";
 
-        // 1. 뒷면 좌측 상단 -> 뒷면 좌측 하단 -> 뒷면 우측 하단 (L자 형태)
         var backL = hiddenGroup.pathItems.add();
         backL.setEntirePath([
-            [bounds[0] + dx, bounds[1] + dy], // 뒷면 좌측 상단
-            [bounds[0] + dx, bounds[3] + dy], // 뒷면 좌측 하단
-            [bounds[2] + dx, bounds[3] + dy]  // 뒷면 우측 하단
+            [bounds[0] + dx, bounds[1] + dy],
+            [bounds[0] + dx, bounds[3] + dy],
+            [bounds[2] + dx, bounds[3] + dy]
         ]);
 
-        // 2. 앞면 좌측 하단 -> 뒷면 좌측 하단 (깊이를 연결하는 대각선)
         var backDiag = hiddenGroup.pathItems.add();
         backDiag.setEntirePath([
-            [bounds[0], bounds[3]],           // 앞면 좌측 하단
-            [bounds[0] + dx, bounds[3] + dy]  // 뒷면 좌측 하단
+            [bounds[0], bounds[3]],
+            [bounds[0] + dx, bounds[3] + dy]
         ]);
 
-        // 문서 색상 모드에 따른 60K 색상 설정
-        var k60Color;
-        if (doc.documentColorSpace == DocumentColorSpace.CMYK) {
-            k60Color = new CMYKColor();
-            k60Color.cyan = 0; k60Color.magenta = 0; k60Color.yellow = 0; k60Color.black = 60;
-        } else {
-            k60Color = new RGBColor();
-            k60Color.red = 102; k60Color.green = 102; k60Color.blue = 102; // 60K와 유사한 RGB
-        }
-
-        // 숨겨진 선 속성 일괄 적용
+        var k60Color = makeK60Color();
         for (var i = 0; i < hiddenGroup.pathItems.length; i++) {
             var p = hiddenGroup.pathItems[i];
             p.filled = false;
             p.stroked = true;
-            p.strokeWidth = frontFace.strokeWidth; // 원본 선 두께 반영
-            p.strokeColor = k60Color;              // 60K 색상 적용
-            p.strokeDashes = [2, 1];               // 2pt 선, 1pt 간격 파선
+            p.strokeWidth = frontFace.strokeWidth;
+            p.strokeColor = k60Color;
+            p.strokeDashes = [2, 1];
             p.strokeJoin = StrokeJoin.ROUNDENDJOIN;
         }
 
-        // 숨겨진 선 그룹을 실선들보다 맨 뒤(아래)로 보내기
-        hiddenGroup.zOrder(ZOrderMethod.SENDTOBACK);
-
-        // 작업 완료 후 선택 해제 (결과 확인용)
-        doc.selection = null;
-
-    } else {
-        alert("사각형 패스를 선택해주세요.");
-    }
-} else {
-    alert("열려있는 문서가 없습니다.");
-}
-
-function copyStyle(source, target) {
-    target.filled = source.filled;
-    if (source.filled) {
-        target.fillColor = source.fillColor;
+        return hiddenGroup;
     }
 
-    target.stroked = source.stroked;
-    if (source.stroked) {
-        target.strokeColor = source.strokeColor;
-        target.strokeWidth = source.strokeWidth;
-        target.strokeDashes = source.strokeDashes;
-        target.strokeCap = source.strokeCap;
-        target.strokeJoin = StrokeJoin.ROUNDENDJOIN;
-        target.opacity = source.opacity;
+    function showDepthDialog(defaultValue, onPreview, onClearPreview) {
+        var dialog = new Window("dialog", "캐비넷 깊이");
+        dialog.orientation = "column";
+        dialog.alignChildren = "fill";
+
+        var inputGroup = dialog.add("group");
+        inputGroup.add("statictext", undefined, "뒤로 이동 거리(mm)");
+        var input = inputGroup.add("edittext", undefined, String(defaultValue));
+        input.characters = 8;
+
+        var previewCheck = dialog.add("checkbox", undefined, "미리보기");
+        previewCheck.value = true;
+
+        var buttons = dialog.add("group");
+        buttons.alignment = "right";
+        var okButton = buttons.add("button", undefined, "확인", {name: "ok"});
+        var cancelButton = buttons.add("button", undefined, "취소", {name: "cancel"});
+
+        var result = null;
+
+        function readValue(showAlert) {
+            var value = parseFloat(String(input.text).replace(",", "."));
+            if (isNaN(value) || value <= 0) {
+                if (showAlert) {
+                    alert("0보다 큰 숫자를 입력해주세요.");
+                }
+                return null;
+            }
+            return value;
+        }
+
+        function updatePreview() {
+            if (!previewCheck.value) {
+                onClearPreview();
+                return;
+            }
+
+            var value = readValue(false);
+            if (value === null) {
+                onClearPreview();
+                return;
+            }
+
+            onPreview(value);
+        }
+
+        input.onChanging = updatePreview;
+        previewCheck.onClick = updatePreview;
+        okButton.onClick = function() {
+            var value = readValue(true);
+            if (value === null) {
+                return;
+            }
+            result = value;
+            dialog.close();
+        };
+        cancelButton.onClick = function() {
+            result = null;
+            dialog.close();
+        };
+
+        updatePreview();
+        dialog.show();
+
+        return result;
     }
-}
+
+    function clearPreview() {
+        for (var i = previewItems.length - 1; i >= 0; i--) {
+            try {
+                previewItems[i].remove();
+            } catch (e) {}
+        }
+        previewItems = [];
+    }
+
+    function makeK60Color() {
+        var color;
+        if (doc.documentColorSpace === DocumentColorSpace.CMYK) {
+            color = new CMYKColor();
+            color.cyan = 0;
+            color.magenta = 0;
+            color.yellow = 0;
+            color.black = 60;
+        } else {
+            color = new RGBColor();
+            color.red = 102;
+            color.green = 102;
+            color.blue = 102;
+        }
+        return color;
+    }
+
+    function copyStyle(source, target) {
+        target.filled = source.filled;
+        if (source.filled) {
+            target.fillColor = source.fillColor;
+        }
+
+        target.stroked = source.stroked;
+        if (source.stroked) {
+            target.strokeColor = source.strokeColor;
+            target.strokeWidth = source.strokeWidth;
+            target.strokeDashes = source.strokeDashes;
+            target.strokeCap = source.strokeCap;
+            target.strokeJoin = StrokeJoin.ROUNDENDJOIN;
+            target.opacity = source.opacity;
+        }
+    }
 })();

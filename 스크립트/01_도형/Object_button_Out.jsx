@@ -26,37 +26,118 @@
     var height = bounds[1] - bounds[3];
     var mmToPt = 2.83464567;
     var defaultDepthMm = Math.round(Math.min(width, height) / 5 / mmToPt * 100) / 100;
-    var depthInput = prompt("뒤로 이동 거리(mm)를 입력하세요.", defaultDepthMm);
+    var previewItems = [];
 
-    if (depthInput === null) {
+    var depthMm = showDepthDialog(defaultDepthMm, function(valueMm) {
+        clearPreview();
+        previewItems = createButton(valueMm * mmToPt);
+        app.redraw();
+    }, clearPreview);
+
+    clearPreview();
+    if (depthMm === null) {
         return;
     }
 
-    var depthMm = parseFloat(String(depthInput).replace(",", "."));
-    if (isNaN(depthMm) || depthMm <= 0) {
-        alert("0보다 큰 숫자를 입력해주세요.");
-        return;
-    }
-
-    var depth = depthMm * mmToPt;
-    frontFace.strokeJoin = StrokeJoin.ROUNDENDJOIN;
-
-    var backFace = frontFace.duplicate();
-    backFace.name = "ButtonDepthOut";
-    backFace.translate(depth, depth);
-    backFace.strokeJoin = StrokeJoin.ROUNDENDJOIN;
-    backFace.move(frontFace, ElementPlacement.PLACEAFTER);
-
-    var tangentPoints = getEllipseTangentPoints(bounds, depth, depth);
-    var tangentA = makeTangentLine(doc, tangentPoints[0], depth, depth, frontFace);
-    var tangentB = makeTangentLine(doc, tangentPoints[1], depth, depth, frontFace);
-
-    try {
-        tangentA.move(frontFace, ElementPlacement.PLACEAFTER);
-        tangentB.move(frontFace, ElementPlacement.PLACEAFTER);
-    } catch (e) {}
-
+    createButton(depthMm * mmToPt);
     doc.selection = null;
+
+    function createButton(depth) {
+        frontFace.strokeJoin = StrokeJoin.ROUNDENDJOIN;
+
+        var backFace = frontFace.duplicate();
+        backFace.name = "ButtonDepthOut";
+        backFace.translate(depth, depth);
+        backFace.strokeJoin = StrokeJoin.ROUNDENDJOIN;
+        backFace.move(frontFace, ElementPlacement.PLACEAFTER);
+
+        var tangentPoints = getEllipseTangentPoints(bounds, depth, depth);
+        var tangentA = makeTangentLine(tangentPoints[0], depth, depth);
+        var tangentB = makeTangentLine(tangentPoints[1], depth, depth);
+
+        try {
+            tangentA.move(frontFace, ElementPlacement.PLACEAFTER);
+            tangentB.move(frontFace, ElementPlacement.PLACEAFTER);
+        } catch (e) {}
+
+        return [backFace, tangentA, tangentB];
+    }
+
+    function showDepthDialog(defaultValue, onPreview, onClearPreview) {
+        var dialog = new Window("dialog", "버튼 깊이");
+        dialog.orientation = "column";
+        dialog.alignChildren = "fill";
+
+        var inputGroup = dialog.add("group");
+        inputGroup.add("statictext", undefined, "뒤로 이동 거리(mm)");
+        var input = inputGroup.add("edittext", undefined, String(defaultValue));
+        input.characters = 8;
+
+        var previewCheck = dialog.add("checkbox", undefined, "미리보기");
+        previewCheck.value = true;
+
+        var buttons = dialog.add("group");
+        buttons.alignment = "right";
+        var okButton = buttons.add("button", undefined, "확인", {name: "ok"});
+        var cancelButton = buttons.add("button", undefined, "취소", {name: "cancel"});
+
+        var result = null;
+
+        function readValue(showAlert) {
+            var value = parseFloat(String(input.text).replace(",", "."));
+            if (isNaN(value) || value <= 0) {
+                if (showAlert) {
+                    alert("0보다 큰 숫자를 입력해주세요.");
+                }
+                return null;
+            }
+            return value;
+        }
+
+        function updatePreview() {
+            if (!previewCheck.value) {
+                onClearPreview();
+                return;
+            }
+
+            var value = readValue(false);
+            if (value === null) {
+                onClearPreview();
+                return;
+            }
+
+            onPreview(value);
+        }
+
+        input.onChanging = updatePreview;
+        previewCheck.onClick = updatePreview;
+        okButton.onClick = function() {
+            var value = readValue(true);
+            if (value === null) {
+                return;
+            }
+            result = value;
+            dialog.close();
+        };
+        cancelButton.onClick = function() {
+            result = null;
+            dialog.close();
+        };
+
+        updatePreview();
+        dialog.show();
+
+        return result;
+    }
+
+    function clearPreview() {
+        for (var i = previewItems.length - 1; i >= 0; i--) {
+            try {
+                previewItems[i].remove();
+            } catch (e) {}
+        }
+        previewItems = [];
+    }
 
     function getEllipseTangentPoints(itemBounds, dx, dy) {
         var left = itemBounds[0];
@@ -81,8 +162,8 @@
         return [p1, p2];
     }
 
-    function makeTangentLine(documentRef, startPoint, dx, dy, source) {
-        var line = documentRef.pathItems.add();
+    function makeTangentLine(startPoint, dx, dy) {
+        var line = doc.pathItems.add();
         line.setEntirePath([
             [startPoint[0], startPoint[1]],
             [startPoint[0] + dx, startPoint[1] + dy]
@@ -91,11 +172,11 @@
         line.filled = false;
         line.stroked = true;
 
-        if (source.stroked) {
-            line.strokeColor = source.strokeColor;
-            line.strokeWidth = source.strokeWidth;
-            line.strokeDashes = source.strokeDashes;
-            line.strokeCap = source.strokeCap;
+        if (frontFace.stroked) {
+            line.strokeColor = frontFace.strokeColor;
+            line.strokeWidth = frontFace.strokeWidth;
+            line.strokeDashes = frontFace.strokeDashes;
+            line.strokeCap = frontFace.strokeCap;
             line.strokeJoin = StrokeJoin.ROUNDENDJOIN;
         }
 
