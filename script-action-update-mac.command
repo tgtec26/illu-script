@@ -144,8 +144,19 @@ else
 fi
 
 ARROW_SRC="$CACHE_DIR/$ARROW_NAME"
-ARROW_DIR="$APP_DIR/Support Files/Required/Resources/ko_KR"
-if [ -f "$ARROW_SRC" ] && [ -d "$ARROW_DIR" ]; then
+# 화살표 폴더 경로는 Illustrator 버전/플랫폼마다 다르다.
+# - 'Support Files/Resources/ko_KR' (2026 등 최신 macOS)
+# - 'Support Files/Required/Resources/ko_KR' (Windows 및 일부 버전)
+ARROW_DIR=""
+for CAND in \
+  "$APP_DIR/Support Files/Resources/ko_KR" \
+  "$APP_DIR/Support Files/Required/Resources/ko_KR"; do
+  if [ -d "$CAND" ]; then
+    ARROW_DIR="$CAND"
+    break
+  fi
+done
+if [ -f "$ARROW_SRC" ] && [ -n "$ARROW_DIR" ] && [ -d "$ARROW_DIR" ]; then
   if [ -w "$ARROW_DIR" ]; then
     cp "$ARROW_SRC" "$ARROW_DIR/$ARROW_NAME"
   else
@@ -156,7 +167,7 @@ if [ -f "$ARROW_SRC" ] && [ -d "$ARROW_DIR" ]; then
 else
   echo "  화살표 건너뜀 (원본 또는 대상 폴더 없음)"
   echo "    원본: $ARROW_SRC"
-  echo "    대상: $ARROW_DIR"
+  echo "    대상: ${ARROW_DIR:-(ko_KR Resources 폴더를 찾지 못함)}"
 fi
 
 echo ""
