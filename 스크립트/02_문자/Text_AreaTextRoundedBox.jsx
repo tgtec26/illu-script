@@ -22,13 +22,8 @@
     var skipped = 0;
 
     for (var i = 0; i < sel.length; i++) {
-        var textFrame = getTextFrame(sel[i]);
-        if (!textFrame) {
-            skipped++;
-            continue;
-        }
-
-        var bounds = getActualTextBounds(textFrame);
+        var targetItem = sel[i];
+        var bounds = getTargetBounds(targetItem);
         if (!bounds) {
             skipped++;
             continue;
@@ -48,7 +43,7 @@
         box.strokeDashes = [];
 
         try {
-            box.move(textFrame, ElementPlacement.PLACEAFTER);
+            box.move(targetItem, ElementPlacement.PLACEAFTER);
         } catch (e) {
             box.zOrder(ZOrderMethod.SENDTOBACK);
         }
@@ -67,21 +62,24 @@
     }
 
     if (skipped > 0) {
-        alert("텍스트 " + created.length + "개에 둥근 사각형을 만들었습니다.\n텍스트가 아니거나 비어 있는 항목 " + skipped + "개는 건너뛰었습니다.");
+        alert("선택 항목 " + created.length + "개에 둥근 사각형을 만들었습니다.\n처리할 수 없거나 비어 있는 항목 " + skipped + "개는 건너뛰었습니다.");
     }
 
-    function getTextFrame(item) {
+    function getTargetBounds(item) {
         if (!item) {
             return null;
         }
         if (item.typename === "TextFrame") {
-            return item;
+            return getActualTextBounds(item);
+        }
+        if (isOutlineLikeItem(item)) {
+            return getVisibleBounds(item);
         }
         return null;
     }
 
     function getActualTextBounds(textFrame) {
-        if (!hasVisibleText(textFrame)) {
+        if (isReadableEmptyText(textFrame)) {
             return null;
         }
 
@@ -90,13 +88,9 @@
         try {
             dup = textFrame.duplicate();
             outline = dup.createOutline();
-            return outline.visibleBounds;
+            return normalizeBounds(outline.visibleBounds);
         } catch (e) {
-            try {
-                return textFrame.visibleBounds;
-            } catch (e2) {
-                return null;
-            }
+            return getVisibleBounds(textFrame);
         } finally {
             try {
                 if (outline) {
@@ -108,12 +102,50 @@
         }
     }
 
-    function hasVisibleText(textFrame) {
+    function isReadableEmptyText(textFrame) {
         try {
-            return String(textFrame.contents).replace(/\s/g, "").length > 0;
+            return String(textFrame.contents).replace(/\s/g, "").length === 0;
         } catch (e) {
             return false;
         }
+    }
+
+    function isOutlineLikeItem(item) {
+        return item.typename === "GroupItem" ||
+            item.typename === "CompoundPathItem" ||
+            item.typename === "PathItem";
+    }
+
+    function getVisibleBounds(item) {
+        try {
+            return normalizeBounds(item.visibleBounds);
+        } catch (e) {
+            try {
+                return normalizeBounds(item.geometricBounds);
+            } catch (e2) {
+                return null;
+            }
+        }
+    }
+
+    function normalizeBounds(bounds) {
+        if (!bounds || bounds.length < 4) {
+            return null;
+        }
+
+        var left = Number(bounds[0]);
+        var top = Number(bounds[1]);
+        var right = Number(bounds[2]);
+        var bottom = Number(bounds[3]);
+
+        if (isNaN(left) || isNaN(top) || isNaN(right) || isNaN(bottom)) {
+            return null;
+        }
+        if (right <= left || top <= bottom) {
+            return null;
+        }
+
+        return [left, top, right, bottom];
     }
 
     function makeBlackColor(documentRef) {
