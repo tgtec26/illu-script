@@ -17,10 +17,8 @@
 
     var frontFace = sel[0];
     var bounds = frontFace.geometricBounds; // [left, top, right, bottom]
-    var width = bounds[2] - bounds[0];
-    var height = bounds[1] - bounds[3];
     var mmToPt = 2.83464567;
-    var defaultDepthMm = Math.round(Math.min(width, height) / 2 / mmToPt * 100) / 100;
+    var defaultDepthMm = 0.5;
     var previewItems = [];
 
     var depthMm = showDepthDialog(defaultDepthMm, function(valueMm) {
@@ -103,14 +101,24 @@
     }
 
     function showDepthDialog(defaultValue, onPreview, onClearPreview) {
+        var depthStepMm = 0.05;
+        var repeatDelayMs = 300;
+        var repeatIntervalMs = 80;
+        var repeatActive = false;
+        var repeatDirection = 0;
+        var repeatDidRun = false;
+        var suppressNextClick = false;
+        var repeatTaskName = "__cabinetDepthRepeatTick";
         var dialog = new Window("dialog", "캐비넷 깊이");
         dialog.orientation = "column";
         dialog.alignChildren = "fill";
 
         var inputGroup = dialog.add("group");
         inputGroup.add("statictext", undefined, "뒤로 이동 거리(mm)");
+        var minusButton = inputGroup.add("button", undefined, "-0.05");
         var input = inputGroup.add("edittext", undefined, String(defaultValue));
         input.characters = 8;
+        var plusButton = inputGroup.add("button", undefined, "+0.05");
 
         var previewCheck = dialog.add("checkbox", undefined, "미리보기");
         previewCheck.value = true;
@@ -122,6 +130,12 @@
 
         var result = null;
 
+        function formatDepth(value) {
+            value = Math.round(value / depthStepMm) * depthStepMm;
+            value = Math.max(depthStepMm, value);
+            return value.toFixed(2);
+        }
+
         function readValue(showAlert) {
             var value = parseFloat(String(input.text).replace(",", "."));
             if (isNaN(value) || value <= 0) {
@@ -131,6 +145,71 @@
                 return null;
             }
             return value;
+        }
+
+        function changeValue(delta) {
+            var value = readValue(false);
+            if (value === null) {
+                value = defaultValue;
+            }
+
+            input.text = formatDepth(value + delta);
+            updatePreview();
+        }
+
+        function scheduleRepeat(delayMs) {
+            if (!repeatActive || !app.scheduleTask) {
+                return;
+            }
+
+            app.scheduleTask(repeatTaskName + "()", delayMs, false);
+        }
+
+        $.global[repeatTaskName] = function() {
+            if (!repeatActive) {
+                return;
+            }
+
+            changeValue(repeatDirection * depthStepMm);
+            repeatDidRun = true;
+            suppressNextClick = true;
+            scheduleRepeat(repeatIntervalMs);
+        };
+
+        function startRepeat(direction) {
+            repeatActive = true;
+            repeatDirection = direction;
+            repeatDidRun = false;
+            suppressNextClick = false;
+            scheduleRepeat(repeatDelayMs);
+        }
+
+        function stopRepeat() {
+            repeatActive = false;
+            if (repeatDidRun) {
+                suppressNextClick = true;
+            }
+        }
+
+        function attachRepeatButton(button, direction) {
+            button.onClick = function() {
+                if (suppressNextClick) {
+                    suppressNextClick = false;
+                    return;
+                }
+
+                changeValue(direction * depthStepMm);
+            };
+
+            try {
+                if (button.addEventListener && app.scheduleTask) {
+                    button.addEventListener("mousedown", function() {
+                        startRepeat(direction);
+                    });
+                    button.addEventListener("mouseup", stopRepeat);
+                    button.addEventListener("mouseout", stopRepeat);
+                }
+            } catch (e) {}
         }
 
         function updatePreview() {
@@ -149,16 +228,20 @@
         }
 
         input.onChanging = updatePreview;
+        attachRepeatButton(minusButton, -1);
+        attachRepeatButton(plusButton, 1);
         previewCheck.onClick = updatePreview;
         okButton.onClick = function() {
             var value = readValue(true);
             if (value === null) {
                 return;
             }
-            result = value;
+            repeatActive = false;
+            result = parseFloat(formatDepth(value));
             dialog.close();
         };
         cancelButton.onClick = function() {
+            repeatActive = false;
             result = null;
             dialog.close();
         };
