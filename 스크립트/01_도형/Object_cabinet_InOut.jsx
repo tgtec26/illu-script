@@ -32,10 +32,10 @@
         return;
     }
 
-    createCabinet(depthMm * mmToPt);
+    createCabinet(depthMm * mmToPt, true);
     doc.selection = null;
 
-    function createCabinet(depth) {
+    function createCabinet(depth, makeGroup) {
         frontFace.strokeJoin = StrokeJoin.ROUNDENDJOIN;
 
         var rightFace = doc.pathItems.add();
@@ -64,7 +64,26 @@
         var hiddenGroup = makeHiddenLines(depth);
         hiddenGroup.zOrder(ZOrderMethod.SENDTOBACK);
 
+        if (makeGroup) {
+            return [groupCabinetItems([hiddenGroup, rightFace, topFace])];
+        }
+
         return [rightFace, topFace, hiddenGroup];
+    }
+
+    function groupCabinetItems(createdItems) {
+        var cabinetGroup = doc.activeLayer.groupItems.add();
+        cabinetGroup.name = "Cabinet Projection";
+        try {
+            cabinetGroup.move(frontFace, ElementPlacement.PLACEBEFORE);
+        } catch (e) {}
+
+        for (var i = 0; i < createdItems.length; i++) {
+            createdItems[i].move(cabinetGroup, ElementPlacement.PLACEATEND);
+        }
+        frontFace.move(cabinetGroup, ElementPlacement.PLACEATEND);
+
+        return cabinetGroup;
     }
 
     function makeHiddenLines(depth) {
@@ -103,7 +122,7 @@
     function showDepthDialog(defaultValue, onPreview, onClearPreview) {
         var depthStepMm = 0.05;
         var minDepthMm = depthStepMm;
-        var maxDepthMm = 100;
+        var maxSliderDepthMm = 10;
         var isSyncingControl = false;
         var dialog = new Window("dialog", "캐비넷 깊이");
         dialog.orientation = "column";
@@ -121,7 +140,7 @@
             undefined,
             depthToStep(defaultValue),
             depthToStep(minDepthMm),
-            depthToStep(maxDepthMm)
+            depthToStep(maxSliderDepthMm)
         );
         depthControl.preferredSize.width = 360;
         depthControl.stepdelta = 1;
@@ -157,7 +176,7 @@
             }
 
             var step = depthToStep(value);
-            step = Math.max(depthToStep(minDepthMm), Math.min(depthToStep(maxDepthMm), step));
+            step = Math.max(depthToStep(minDepthMm), Math.min(depthToStep(maxSliderDepthMm), step));
             isSyncingControl = true;
             depthControl.value = step;
             isSyncingControl = false;
