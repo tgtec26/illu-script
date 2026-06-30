@@ -64,6 +64,10 @@
     }
 
     function showDepthDialog(defaultValue, onPreview, onClearPreview) {
+        var depthStepMm = 0.05;
+        var minDepthMm = depthStepMm;
+        var maxSliderDepthMm = 10;
+        var isSyncingControl = false;
         var dialog = new Window("dialog", "버튼 깊이");
         dialog.orientation = "column";
         dialog.alignChildren = "fill";
@@ -72,6 +76,17 @@
         inputGroup.add("statictext", undefined, "뒤로 이동 거리(mm)");
         var input = inputGroup.add("edittext", undefined, String(defaultValue));
         input.characters = 8;
+
+        var depthControl = dialog.add(
+            "scrollbar",
+            undefined,
+            depthToStep(defaultValue),
+            depthToStep(minDepthMm),
+            depthToStep(maxSliderDepthMm)
+        );
+        depthControl.preferredSize.width = 360;
+        depthControl.stepdelta = 1;
+        depthControl.jumpdelta = 10;
 
         var previewCheck = dialog.add("checkbox", undefined, "미리보기");
         previewCheck.value = true;
@@ -83,6 +98,32 @@
 
         var result = null;
 
+        function formatDepth(value) {
+            value = Math.round(value / depthStepMm) * depthStepMm;
+            value = Math.max(depthStepMm, value);
+            return value.toFixed(2);
+        }
+
+        function depthToStep(value) {
+            return Math.round(value / depthStepMm);
+        }
+
+        function stepToDepth(step) {
+            return step * depthStepMm;
+        }
+
+        function syncDepthControl(value) {
+            if (isSyncingControl || value === null) {
+                return;
+            }
+
+            var step = depthToStep(value);
+            step = Math.max(depthToStep(minDepthMm), Math.min(depthToStep(maxSliderDepthMm), step));
+            isSyncingControl = true;
+            depthControl.value = step;
+            isSyncingControl = false;
+        }
+
         function readValue(showAlert) {
             var value = parseFloat(String(input.text).replace(",", "."));
             if (isNaN(value) || value <= 0) {
@@ -92,6 +133,12 @@
                 return null;
             }
             return value;
+        }
+
+        function setDepthValue(value) {
+            input.text = formatDepth(value);
+            syncDepthControl(value);
+            updatePreview();
         }
 
         function updatePreview() {
@@ -110,13 +157,24 @@
         }
 
         input.onChanging = updatePreview;
+        input.onChange = function() {
+            var value = readValue(false);
+            syncDepthControl(value);
+        };
+        depthControl.onChanging = function() {
+            if (isSyncingControl) {
+                return;
+            }
+
+            setDepthValue(stepToDepth(depthControl.value));
+        };
         previewCheck.onClick = updatePreview;
         okButton.onClick = function() {
             var value = readValue(true);
             if (value === null) {
                 return;
             }
-            result = value;
+            result = parseFloat(formatDepth(value));
             dialog.close();
         };
         cancelButton.onClick = function() {
